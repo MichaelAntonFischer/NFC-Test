@@ -88,6 +88,7 @@ void loop(void) {
         
     // Wait for an NTAG203 card.  When one is found 'uid' will be populated with
     // the UID, and uidLength will indicate the size of the UUID (normally 7)
+    Serial.println("Waiting for tag");
     success = nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 420);
     
     if (success) {
@@ -103,45 +104,8 @@ void loop(void) {
             if (cardType == 1) {
                 bytesread = nfc->ntag424_ISOReadFile(data);
                 Serial.println("This is an NTAG424 tag.");
-            } else if (cardType == 2) {
-                // This is an NTAG213 tag, it has 45 pages of user memory
-                Serial.println("This is an NTAG213 tag.");
-                for(uint8_t page = 0; page < 45; page++) {
-                    success = nfc->ntag2xx_ReadPage(page, data);
-                    if (!success) {
-                        Serial.println("Failed to read page");
-                        break;
-                    }
-                }
-                Serial.println("The first message is:");
-                Serial.println((char*)data);
-            } else if (cardType == 3) {
-                // This is an NTAG215 tag, it has 135 pages of user memory
-                Serial.println("This is an NTAG215 tag.");
-                for(uint8_t page = 0; page < 135; page++) {
-                    success = nfc->ntag2xx_ReadPage(page, data);
-                    if (!success) {
-                        Serial.println("Failed to read page");
-                        break;
-                    }
-                }
-                Serial.println("The first message is:");
-                Serial.println((char*)data);
-            } else if (cardType == 4) {
-                // This is an NTAG216 tag, it has 231 pages of user memory
-                Serial.println("This is an NTAG216 tag.");
-                for(uint8_t page = 0; page < 231; page++) {
-                    success = nfc->ntag2xx_ReadPage(page, data);
-                    if (!success) {
-                        Serial.println("Failed to read page");
-                        break;
-                    }
-                }
-                Serial.println("The first message is:");
-                Serial.println((char*)data);
             } else {
-                bytesread = nfc->ntag424_ISOReadFile(data);
-                Serial.println("This is an unknown type, but ISOReadFile will be attempted.");
+                Serial.println("Not an NTAG424 tag.");
             }
         } else {
             return;
@@ -166,9 +130,6 @@ void loop(void) {
         
         // Wait a bit before trying again
         delay(2000);
-    } else {
-        Serial.println("Waiting for tag");
-        delay(2000);
-    }
+    } 
 }
 
