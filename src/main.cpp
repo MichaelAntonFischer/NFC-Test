@@ -50,6 +50,10 @@ PN532_I2C *pn532_i2c = NULL;
 PN532 *pn532 = NULL;
 NfcAdapter *nfcAdapter = NULL;
 
+String lnurlwNFC = "";
+bool isRfOff = false;
+bool lnurlwFound = false;
+
 // Uncomment just _one_ line below depending on how your breakout or shield
 // is connected to the Arduino:
 
@@ -97,35 +101,218 @@ void scanDevices(TwoWire *w)
         Serial.println("[nfcTask] No I2C devices found\n");
 }
 
-void setup(void) {
-    Serial.begin(115200);
+void setRFoff(bool turnOff, PN532_I2C* pn532_i2c) {
+    uint8_t commandRFoff[3] = {0x32, 0x01, 0x00}; // RFConfiguration command to turn off the RF field
+    uint8_t commandRFon[7] = { 0x02, 0x02, 0x00, 0xD4, 0x02, 0x2A, 0x00 };
+    // Check the desired state
+    if (turnOff && !isRfOff) {
+        Serial.println("[nfcTask] Powering down RF");
+        // Try to turn off RF
+        if (pn532_i2c->writeCommand(commandRFoff, sizeof(commandRFoff)) == 0) {
+            // If RF is successfully turned off, set the flag
+            Serial.println("[nfcTask] RF is off");
+            isRfOff = true;
+            Serial.println("[nfcTask] RF is off - Flag set");
+        } else {
+            Serial.println("[nfcTask] Error powering down RF");
+        }
+    } else if (!turnOff && isRfOff) {
+        Serial.println("[nfcTask] Powering up RF");
+        // Try to turn on RF
+        vTaskDelay(21);
+        if (pn532_i2c->writeCommand(commandRFon, sizeof(commandRFon)) == 0) {
+            // If RF is successfully turned on, clear the flag
+            Serial.println("[nfcTask] RF is on");
+            isRfOff = false;
+        } else {
+            Serial.println("[nfcTask] Error powering up RF");
+            ESP.restart();
+        }
+    } else {
+        Serial.println("[nfcTask] RF already in desired state");
+    }
+}
+
+bool initNFC(PN532_I2C** pn532_i2c, Adafruit_PN532** nfc, PN532** pn532, NfcAdapter** nfcAdapter) {
+    pinMode(2, OUTPUT);
+    digitalWrite(2, HIGH);
+    // Initialize the IRQ pin as input
+    pinMode(NFC_IRQ, INPUT);
+    // Initialize the RST pin as output
+    pinMode(NFC_RST, OUTPUT);
+    // Set the RST pin to HIGH to reset the module
+    digitalWrite(NFC_RST, HIGH);
+    vTaskDelay(21);
+    // Set the RST pin to LOW to finish the reset
+    digitalWrite(NFC_RST, LOW);
+    Serial.println("[nfcTask] Initializing NFC ...");
+    // Initialize the I2C bus with the correct SDA and SCL pins
     Wire.begin(NFC_SDA, NFC_SCL);
     Wire.setClock(10000);
-    nfc = new Adafruit_PN532(NFC_SDA, NFC_SCL);
-    pn532_i2c = new PN532_I2C(Wire);
-    pn532 = new PN532(*pn532_i2c);
-    nfcAdapter = new NfcAdapter(*pn532_i2c);
-    nfc->begin();
-    nfc->SAMConfig();
-    nfc->SAMConfig();
+    // Initialize the PN532_I2C object with the initialized Wire object
+    *pn532_i2c = new PN532_I2C(Wire);
+    // Initialize the PN532 object with the initialized PN532_I2C object
+    *pn532 = new PN532(**pn532_i2c);
+    //initialize NFC Adapter object
+    *nfcAdapter = new NfcAdapter(**pn532_i2c);
+
+    // Initialize the Adafruit_PN532 object with the initialized PN532_I2C object
+    *nfc = new Adafruit_PN532(NFC_SDA, NFC_SCL);
+
+    // Use the  pointer to call begin() and SAMConfig()
+    // Try to initialize the NFC reader
+    (*pn532)->begin();
+    (*pn532)->SAMConfig();
+
     scanDevices(&Wire);
     int error = Wire.endTransmission();
     if (error == 0) {
-        uint32_t versiondata = nfc->getFirmwareVersion();
+        uint32_t versiondata = (*pn532)->getFirmwareVersion();
         if (! versiondata) {
             Serial.println("[nfcTask] Didn't find PN53x board");
+            return false;
         }
         // Got ok data, print it out!
         String message = "[nfcTask] Found chip PN5" + String((versiondata >> 24) & 0xFF, HEX);
-        Serial.println(message);
+        Serial.println(message.c_str());
         message = "[nfcTask] Firmware ver. " + String((versiondata >> 16) & 0xFF, DEC);
-        Serial.println(message);
+        Serial.println(message.c_str());
         message = "[nfcTask] Firmware ver. " + String((versiondata >> 8) & 0xFF, DEC);
-        Serial.println(message);
+        Serial.println(message.c_str());
+        setRFoff(true, *pn532_i2c);
+        return true;
     } else {
         String message = "[nfcTask] Wire error: " + String(error);
-        Serial.println(message);
+        Serial.println(message.c_str());
+        return false;
     } 
+}
+
+bool isLnurlw(void) {
+    Serial.println("[nfcTask] Checking if URL is lnurlw");
+    if (lnurlwNFC.startsWith("lnurlw")) {
+        lnurlwNFC.replace("lnurlw", "https");
+    } else if (lnurlwNFC.startsWith("http") && !lnurlwNFC.startsWith("https")) {
+        lnurlwNFC.replace("http", "https");
+    }
+    // Check if the URL starts with "https://" 
+    if (lnurlwNFC.startsWith("https://")) {
+        Serial.println("[nfcTask] URL is lnurlw");
+        return true;
+    } else {
+        Serial.println("[nfcTask] URL is not lnurlw");
+        return false;
+    }
+}
+
+bool readAndProcessNFCData(PN532_I2C *pn532_i2c, PN532 *pn532, Adafruit_PN532 *nfc, NfcAdapter *nfcAdapter, int &readAttempts)
+{
+    NdefMessage message;
+    int recordCount;
+    uint8_t cardType = nfc->ntag424_isNTAG424();
+    if (cardType) 
+    {
+        uint8_t data[256];
+        uint8_t bytesread = nfc->ntag424_ISOReadFile(data);
+        // Extract URL from data
+        lnurlwNFC = String((char*)data);
+        Serial.println("URL from NTAG424: " + lnurlwNFC);
+        if (isLnurlw()) 
+        {
+            while (!isRfOff) 
+            {
+                setRFoff(true, pn532_i2c); // Attempt to switch off RF
+            }
+            lnurlwFound = true;
+            return true;
+        }
+    }
+    else
+    {
+        NfcTag tag = nfcAdapter->read();
+        String tagType = tag.getTagType();
+        Serial.println("[nfcTask] Tag type read");
+        Serial.println("Tag Type: " + tagType);
+        if (tag.hasNdefMessage()) 
+        {
+            message = tag.getNdefMessage();
+            recordCount = message.getRecordCount();
+        }
+        bool lnurlwFound = false;
+        for (int i = 0; i < recordCount && !lnurlwFound; i++) 
+        {
+            NdefRecord record = message.getRecord(i);
+            String recordType = record.getType();
+            String logMessage = "Record Type: " + recordType;
+            Serial.println(logMessage);
+            if (recordType == "U" || recordType == "T") 
+            { 
+                uint8_t payload[record.getPayloadLength() + 1] = {0}; // Added +1 to the size and initialized to 0 to ensure null termination
+                record.getPayload(payload);
+                String recordPayload;
+                if (recordType == "U") 
+                {
+                    switch (payload[0]) 
+                    {
+                        case 0x01:
+                            recordPayload = "http://www.";
+                            break;
+                        case 0x02:
+                            recordPayload = "https://www.";
+                            break;
+                        case 0x03:
+                            recordPayload = "http://";
+                            break;
+                        case 0x04:
+                            recordPayload = "https://";
+                            break;
+                        default:
+                            recordPayload = String((char*)payload);
+                            break;
+                    }
+                    recordPayload += String((char*)&payload[1]);
+                } 
+                else 
+                {
+                    for (int i = 0; i < record.getPayloadLength(); i++) 
+                    {
+                        recordPayload += (char)payload[i];
+                    }
+                }
+                lnurlwNFC = recordPayload;
+                String logMessage = "Record Payload: " + recordPayload;
+                Serial.println(logMessage);
+                if (isLnurlw()) 
+                {
+                    while (!isRfOff) 
+                    {
+                        setRFoff(true, pn532_i2c); // Attempt to switch off RF
+                    }
+                    lnurlwFound = true;
+                    return true;
+                }
+            }
+        }
+    }
+    lnurlwNFC = ""; // Reset the global variable if it's not lnurlw
+    readAttempts++;
+    if (readAttempts >= 12) 
+    {
+        setRFoff(true, pn532_i2c); // Switch off RF
+        if (isRfOff) 
+        {
+            return false;
+        }
+    }
+    return false;
+}
+
+void setup(void) {
+    Serial.begin(115200);
+    bool nfcInitialized = initNFC(&pn532_i2c, &nfc, &pn532, &nfcAdapter);
+    if (!nfcInitialized) {
+        Serial.println("[nfcTask] Failed to initialize NFC");
+    }
 }
 
 void loop(void) {
@@ -137,31 +324,12 @@ void loop(void) {
     success = nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 420);
     
     if (success) {
-        uint8_t cardType = nfc->ntag424_isNTAG424();
-        if (cardType) {
-            uint8_t data[256];
-            uint8_t bytesread = nfc->ntag424_ISOReadFile(data);
-            // Extract URL from data
-            String url = String((char*)data);
-            Serial.println("URL from NTAG424: " + url);
+        int readAttempts = 0;
+        bool cardRead = readAndProcessNFCData(pn532_i2c, pn532, nfc, nfcAdapter, readAttempts);
+        if (cardRead) {
+            Serial.println("Card read successfully.");
         } else {
-            if (nfcAdapter->tagPresent()) {
-                NfcTag tag = nfcAdapter->read();
-                NdefMessage message = tag.getNdefMessage();
-                for (int i = 0; i < message.getRecordCount(); i++) {
-                    NdefRecord record = message.getRecord(i);
-                    int payloadLength = record.getPayloadLength();
-                    byte payload[payloadLength];
-                    record.getPayload(payload);
-                    // payload is a byte array containing the data from the record
-                    // Convert byte array to string
-                    String payloadAsString = "";
-                    for (int j = 0; j < payloadLength; j++) {
-                        payloadAsString += (char)payload[j];
-                    }
-                    Serial.println("Payload from NDEF: " + payloadAsString);
-                }
-            }
+            Serial.println("Failed to read card.");
         }
     }
 }
