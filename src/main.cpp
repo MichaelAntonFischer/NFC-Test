@@ -101,6 +101,48 @@ void scanDevices(TwoWire *w)
         Serial.println("[nfcTask] No I2C devices found\n");
 }
 
+bool oldInit(PN532_I2C** pn532_i2c, PN532** nfc) {
+    pinMode(2, OUTPUT);
+    digitalWrite(2, HIGH);
+    // Initialize the IRQ pin as input
+    pinMode(NFC_IRQ, INPUT);
+    // Initialize the RST pin as output
+    pinMode(NFC_RST, OUTPUT);
+    // Set the RST pin to HIGH to reset the module
+    digitalWrite(NFC_RST, HIGH);
+    vTaskDelay(21);
+    // Set the RST pin to LOW to finish the reset
+    digitalWrite(NFC_RST, LOW);
+    //logger::write("Initializing NFC ...");
+    // Initialize the I2C bus with the correct SDA and SCL pins
+    Wire.begin(NFC_SDA, NFC_SCL);
+    Wire.setClock(10000);
+    // Initialize the PN532_I2C object with the initialized Wire object
+    *pn532_i2c = new PN532_I2C(Wire);
+    // Initialize the PN532 object with the initialized PN532_I2C object
+    *nfc = new PN532(**pn532_i2c);
+    // Use the nfc pointer to call begin() and SAMConfig()
+    // Try to initialize the NFC reader
+    (*nfc)->begin();
+    (*nfc)->SAMConfig();
+    scanDevices(&Wire);
+    if (Wire.endTransmission() == 0) {
+        uint32_t versiondata = (*nfc)->getFirmwareVersion();
+        if (! versiondata) {
+            Serial.print("Didn't find PN53x board");
+        }
+        // Got ok data, print it out!
+        Serial.print("Found chip PN5"); Serial.println((versiondata >> 24) & 0xFF, HEX);
+        Serial.print("Firmware ver. "); Serial.print((versiondata >> 16) & 0xFF, DEC);
+        Serial.print('.'); Serial.println((versiondata >> 8) & 0xFF, DEC);
+        //setRFoff(true, *pn532_i2c);
+        return true;
+    } else {
+        Serial.println("Didn't find PN53x board");
+        return false;
+    } 
+}
+
 void setRFoff(bool turnOff, PN532_I2C* pn532_i2c) {
     uint8_t commandRFoff[3] = {0x32, 0x01, 0x00}; // RFConfiguration command to turn off the RF field
     uint8_t commandRFon[7] = { 0x02, 0x02, 0x00, 0xD4, 0x02, 0x2A, 0x00 };
@@ -148,7 +190,7 @@ bool initNFC(PN532_I2C** pn532_i2c, Adafruit_PN532** nfc, PN532** pn532, NfcAdap
     Serial.println("[nfcTask] Initializing NFC ...");
     // Initialize the I2C bus with the correct SDA and SCL pins
     Wire.begin(NFC_SDA, NFC_SCL);
-    Wire.setClock(10000);
+    //Wire.setClock(10000);
     // Initialize the PN532_I2C object with the initialized Wire object
     *pn532_i2c = new PN532_I2C(Wire);
     // Initialize the PN532 object with the initialized PN532_I2C object
@@ -309,10 +351,11 @@ bool readAndProcessNFCData(PN532_I2C *pn532_i2c, PN532 *pn532, Adafruit_PN532 *n
 
 void setup(void) {
     Serial.begin(115200);
-    bool nfcInitialized = initNFC(&pn532_i2c, &nfc, &pn532, &nfcAdapter);
+    bool nfcInitialized = oldInit(&pn532_i2c, &pn532);
     if (!nfcInitialized) {
         Serial.println("[nfcTask] Failed to initialize NFC");
     }
+    initNFC(&pn532_i2c, &nfc, &pn532, &nfcAdapter);
 }
 
 void loop(void) {
