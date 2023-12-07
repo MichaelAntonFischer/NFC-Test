@@ -127,9 +127,6 @@ void loop(void) {
         {
             Serial.println("Failed to read from the tag.");
         }
-        
-        // Wait a bit before trying again
-        delay(2000);
     } 
 }
 
