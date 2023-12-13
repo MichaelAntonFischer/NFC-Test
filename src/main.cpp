@@ -140,11 +140,11 @@ bool initNFC(PN532_I2C** pn532_i2c, Adafruit_PN532** nfc, PN532** pn532, NfcAdap
     pinMode(NFC_IRQ, INPUT);
     // Initialize the RST pin as output
     pinMode(NFC_RST, OUTPUT);
-    // Set the RST pin to HIGH to reset the module
-    digitalWrite(NFC_RST, HIGH);
-    vTaskDelay(21);
-    // Set the RST pin to LOW to finish the reset
+    // Set the RST pin to LOW to reset the module
     digitalWrite(NFC_RST, LOW);
+    vTaskDelay(210);
+    // Set the RST pin to HIGH to finish the reset
+    digitalWrite(NFC_RST, HIGH);
     // Initialize the I2C bus with the correct SDA and SCL pins
     Wire.begin(NFC_SDA, NFC_SCL);
     Wire.setClock(10000);
