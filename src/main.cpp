@@ -133,6 +133,12 @@ void setRFoff(bool turnOff, PN532_I2C* pn532_i2c) {
     }
 }
 
+void reset_I2C_bus() {
+  Wire.begin();
+  Wire.beginTransmission(0x00);
+  Wire.endTransmission();
+}
+
 bool initNFC(PN532_I2C** pn532_i2c, Adafruit_PN532** nfc, PN532** pn532, NfcAdapter** nfcAdapter) {
     pinMode(2, OUTPUT);
     digitalWrite(2, HIGH);
@@ -148,6 +154,7 @@ bool initNFC(PN532_I2C** pn532_i2c, Adafruit_PN532** nfc, PN532** pn532, NfcAdap
     // Initialize the I2C bus with the correct SDA and SCL pins
     Wire.begin(NFC_SDA, NFC_SCL);
     Wire.setClock(10000);
+    Wire.setTimeOut(2100);
     // Initialize the PN532_I2C object with the initialized Wire object
     *pn532_i2c = new PN532_I2C(Wire);
     // Initialize the PN532 object with the initialized PN532_I2C object
@@ -318,7 +325,7 @@ void loop(void) {
 
     Serial.println("Waiting for tag...");
     success = nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 420);
-    
+
     if (success) {
         int readAttempts = 0;
         bool cardRead = readAndProcessNFCData(pn532_i2c, pn532, nfc, nfcAdapter, readAttempts);
