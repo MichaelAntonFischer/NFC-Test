@@ -144,17 +144,21 @@ bool initNFC(PN532_I2C** pn532_i2c, Adafruit_PN532** nfc, PN532** pn532, NfcAdap
     digitalWrite(2, HIGH);
     // Initialize the IRQ pin as input
     pinMode(NFC_IRQ, INPUT);
+    delay(21);
     // Initialize the RST pin as output
     pinMode(NFC_RST, OUTPUT);
+    delay(21);
     // Set the RST pin to LOW to reset the module
     digitalWrite(NFC_RST, LOW);
     vTaskDelay(210);
     // Set the RST pin to HIGH to finish the reset
     digitalWrite(NFC_RST, HIGH);
+    delay(210);
     // Initialize the I2C bus with the correct SDA and SCL pins
     Wire.begin(NFC_SDA, NFC_SCL);
+    delay(21);
     Wire.setClock(10000);
-    Wire.setTimeOut(2100);
+    delay(21);
     // Initialize the PN532_I2C object with the initialized Wire object
     *pn532_i2c = new PN532_I2C(Wire);
     // Initialize the PN532 object with the initialized PN532_I2C object
@@ -162,11 +166,13 @@ bool initNFC(PN532_I2C** pn532_i2c, Adafruit_PN532** nfc, PN532** pn532, NfcAdap
     //initialize NFC Adapter object
     *nfcAdapter = new NfcAdapter(**pn532_i2c);
     // Initialize the Adafruit_PN532 object with the initialized PN532_I2C object
-    *nfc = new Adafruit_PN532(NFC_SDA, NFC_SCL);
+    *nfc = new Adafruit_PN532(NFC_IRQ, NFC_RST);
     // Use the  pointer to call begin() and SAMConfig()
     // Try to initialize the NFC reader
     (*pn532)->begin();
+    delay(21);
     (*pn532)->SAMConfig();
+    delay(21);
     scanDevices(&Wire);
     byte error = Wire.endTransmission();
     if (error == 0) {
@@ -311,6 +317,7 @@ bool readAndProcessNFCData(PN532_I2C *pn532_i2c, PN532 *pn532, Adafruit_PN532 *n
 }
 
 void setup(void) {
+    delay(1200);
     Serial.begin(115200);
     while (!initNFC(&pn532_i2c, &nfc, &pn532, &nfcAdapter)) {
         Serial.println("[nfcTask] Failed to initialize NFC");
